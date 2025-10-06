@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     
     # Maximum nesting level for activities
     MAX_ACTIVITY_DEPTH: int = 3
+
+    # Logging settings
+    LOG_LEVEL: str = "INFO"
+    LOG_FORMAT: str = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+    LOG_DATE_FORMAT: str = "%Y-%m-%d %H:%M:%S"
     
     model_config = SettingsConfigDict(
         env_file=".env",

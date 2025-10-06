@@ -1,6 +1,8 @@
 """API endpoints for buildings."""
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
 from app.db.session import get_db
 from app.core.security import verify_api_key
@@ -8,6 +10,8 @@ from app.models.models import Building as BuildingModel
 from app.schemas import schemas
 
 router = APIRouter(prefix="/buildings", tags=["buildings"])
+
+logger = logging.getLogger(__name__)
 
 
 @router.get(
@@ -26,15 +30,22 @@ async def list_buildings(
     query = db.query(BuildingModel)
     
     total = query.count()
-    buildings = query.offset(offset).limit(limit).all()
-    
+    buildings: list[BuildingModel] = query.offset(offset).limit(limit).all()
+
     # Convert to schema format with lat/lon extraction
     buildings_response = []
     for building in buildings:
-        # Extract coordinates from PostGIS POINT
+        logger.debug(
+            "Building %s coordinates raw value: %s",
+            building.id,
+            building.coordinates,
+        )
         coords = db.execute(
-            f"SELECT ST_X(coordinates::geometry) as lon, ST_Y(coordinates::geometry) as lat "
-            f"FROM buildings WHERE id = {building.id}"
+            text(
+                "SELECT ST_X(coordinates::geometry) AS lon, ST_Y(coordinates::geometry) AS lat "
+                "FROM buildings WHERE id = :id"
+            ),
+            {"id": building.id},
         ).first()
         
         buildings_response.append(
@@ -73,8 +84,11 @@ async def get_building(
     
     # Extract coordinates from PostGIS POINT
     coords = db.execute(
-        f"SELECT ST_X(coordinates::geometry) as lon, ST_Y(coordinates::geometry) as lat "
-        f"FROM buildings WHERE id = {building.id}"
+        text(
+            "SELECT ST_X(coordinates::geometry) AS lon, ST_Y(coordinates::geometry) AS lat "
+            "FROM buildings WHERE id = :id"
+        ),
+        {"id": building.id},
     ).first()
     
     return schemas.Building(

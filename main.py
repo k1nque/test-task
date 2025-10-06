@@ -1,9 +1,41 @@
 """Main FastAPI application."""
+import logging
+import sys
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.api import organizations, buildings, activities
+
+# Configure logging
+def _resolve_log_level(level_name: str) -> tuple[int, bool]:
+    """Resolve a logging level name to its numeric value."""
+    level = getattr(logging, level_name.upper(), None)
+    if isinstance(level, int):
+        return level, False
+    return logging.INFO, True
+
+
+_log_level, _invalid_log_level = _resolve_log_level(settings.LOG_LEVEL)
+
+logging.basicConfig(
+    level=_log_level,
+    format=settings.LOG_FORMAT,
+    datefmt=settings.LOG_DATE_FORMAT,
+    handlers=[logging.StreamHandler(sys.stdout)],
+    force=True,
+)
+logging.captureWarnings(True)
+
+for _logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+    logging.getLogger(_logger_name).setLevel(_log_level)
+
+if _invalid_log_level:
+    logging.getLogger(__name__).warning(
+        "Unknown LOG_LEVEL '%s'. Falling back to INFO.",
+        settings.LOG_LEVEL,
+    )
 
 # Create FastAPI app
 app = FastAPI(
