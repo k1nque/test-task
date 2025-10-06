@@ -389,6 +389,97 @@ def test_create_building_persists_coordinates():
     assert stored.address == payload["address"]
 
 
+def test_create_activity_root_level():
+    """POST /api/v1/activities should create a top-level activity."""
+    session = FakeSession({ActivityModel: []}, start_pk=20)
+    payload = {"name": "Root Activity", "parent_id": None}
+
+    with override_db(session):
+        response = client.post(
+            "/api/v1/activities/",
+            json=payload,
+            headers={"X-API-Key": settings.API_KEY},
+        )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["id"] == 20
+    assert body["level"] == 1
+    assert body["parent_id"] is None
+    assert body["name"] == payload["name"]
+
+    stored = session._data_map[ActivityModel][0]
+    assert stored.level == 1
+
+
+def test_create_activity_with_parent_sets_level():
+    """Child activities should inherit level from parent."""
+    now = datetime.now(UTC)
+    parent = SimpleNamespace(
+        id=5,
+        name="Parent",
+        parent_id=None,
+        level=1,
+        created_at=now,
+        updated_at=now,
+    )
+    session = FakeSession({ActivityModel: [parent]}, start_pk=6)
+
+    with override_db(session):
+        response = client.post(
+            "/api/v1/activities/",
+            json={"name": "Child", "parent_id": 5},
+            headers={"X-API-Key": settings.API_KEY},
+        )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["level"] == 2
+    assert body["parent_id"] == 5
+
+
+def test_create_activity_invalid_parent_returns_404():
+    """Creating an activity with missing parent should return 404."""
+    session = FakeSession({ActivityModel: []})
+
+    with override_db(session):
+        response = client.post(
+            "/api/v1/activities/",
+            json={"name": "Orphan", "parent_id": 999},
+            headers={"X-API-Key": settings.API_KEY},
+        )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Activity with id 999 not found"
+
+
+def test_create_activity_exceeding_depth_returns_400():
+    """Requests creating activities deeper than allowed should fail."""
+    now = datetime.now(UTC)
+    max_level_parent = SimpleNamespace(
+        id=7,
+        name="Deep",
+        parent_id=6,
+        level=settings.MAX_ACTIVITY_DEPTH,
+        created_at=now,
+        updated_at=now,
+    )
+    session = FakeSession({ActivityModel: [max_level_parent]})
+
+    with override_db(session):
+        response = client.post(
+            "/api/v1/activities/",
+            json={"name": "Too Deep", "parent_id": 7},
+            headers={"X-API-Key": settings.API_KEY},
+        )
+
+    assert response.status_code == 400
+    assert (
+        response.json()["detail"]
+        == f"Maximum activity depth of {settings.MAX_ACTIVITY_DEPTH} exceeded"
+    )
+
+
 def test_list_activities_returns_all_levels():
     """GET /api/v1/activities should return a flat activity list."""
     now = datetime.now(UTC)

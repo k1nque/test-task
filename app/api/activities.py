@@ -1,14 +1,20 @@
 """API endpoints for activities."""
+import logging
 from typing import List
+
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.core.config import settings
 from app.core.security import verify_api_key
 from app.models.models import Activity as ActivityModel
 from app.schemas import schemas
 
 router = APIRouter(prefix="/activities", tags=["activities"])
+
+logger = logging.getLogger(__name__)
 
 
 def build_activity_tree(activities: List[ActivityModel]) -> List[schemas.ActivityWithChildren]:
@@ -127,3 +133,66 @@ async def get_activity(
         updated_at=activity.updated_at,
         children=[]
     )
+
+
+@router.post(
+    "/",
+    response_model=schemas.Activity,
+    status_code=201,
+    summary="Create activity",
+    description="Create a new activity, optionally as a child of an existing one"
+)
+async def create_activity(
+    activity: schemas.ActivityCreate,
+    api_key: str = Depends(verify_api_key),
+    db: Session = Depends(get_db)
+):
+    """Create a new activity respecting maximum nesting depth."""
+    parent = None
+    level = 1
+
+    if activity.parent_id is not None:
+        parent = (
+            db.query(ActivityModel)
+            .filter(ActivityModel.id == activity.parent_id)
+            .first()
+        )
+        if not parent:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Activity with id {activity.parent_id} not found"
+            )
+        level = getattr(parent, "level", 0) + 1
+
+    if level > settings.MAX_ACTIVITY_DEPTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Maximum activity depth of {settings.MAX_ACTIVITY_DEPTH} exceeded"
+        )
+
+    new_activity = ActivityModel(
+        name=activity.name,
+        parent_id=activity.parent_id,
+        level=level,
+    )
+
+    db.add(new_activity)
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        logger.warning(
+            "Integrity error when creating activity '%s'", activity.name
+        )
+        raise HTTPException(
+            status_code=400,
+            detail="Activity violates unique or integrity constraints"
+        ) from exc
+    except Exception as exc:  # pragma: no cover - defensive safety net
+        db.rollback()
+        logger.exception("Unexpected error creating activity")
+        raise HTTPException(status_code=500, detail="Failed to create activity") from exc
+
+    db.refresh(new_activity)
+    logger.info("Created activity %s (level %s)", new_activity.id, level)
+    return new_activity
