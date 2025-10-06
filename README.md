@@ -47,9 +47,7 @@ cp .env.example .env
 #### Через helper-скрипт `start.sh`
 
 ```bash
-
 ./start.sh
-
 ```
 
 #### Вручную через Docker Compose
@@ -361,11 +359,11 @@ alembic upgrade head
 
 ```bash
 # Подключение к базе данных в Docker
-docker-compose exec db psql -U postgres -d organizations_db
+docker compose exec db psql -U postgres -d organizations_db
 
 # Пересоздание базы данных
-docker-compose down -v
-docker-compose up -d
+docker compose down -v
+docker compose up -d
 ```
 
 ## Лицензия
