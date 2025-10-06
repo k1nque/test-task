@@ -5,6 +5,7 @@ REST API приложение для справочника Организаци
 ## Описание
 
 Приложение предоставляет REST API для управления справочником организаций с поддержкой:
+
 - **Организации**: карточки организаций с номерами телефонов и видами деятельности
 - **Здания**: информация о зданиях с географическими координатами
 - **Деятельность**: древовидная структура видов деятельности (до 3 уровней вложенности)
@@ -41,7 +42,17 @@ cp .env.example .env
 # По умолчанию используется API_KEY: your-secret-api-key-change-in-production
 ```
 
-### 3. Запуск приложения
+### 2. Запуск приложения
+
+#### Через helper-скрипт `start.sh`
+
+```bash
+
+./start.sh
+
+```
+
+#### Вручную через Docker Compose
 
 ```bash
 # Запустите все сервисы (скрипт автоматически определит версию Docker Compose)
@@ -55,11 +66,13 @@ docker compose up -d --build
 ```
 
 Приложение будет доступно по адресу:
-- API: http://localhost:8000
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
+
+- API: [http://localhost:8000](http://localhost:8000)
+- Swagger UI: [http://localhost:8000/docs](http://localhost:8000/docs)
+- ReDoc: [http://localhost:8000/redoc](http://localhost:8000/redoc)
 
 **База данных:**
+
 - PostgreSQL доступна на порту 5434 (внешний) для избежания конфликта с локальным PostgreSQL
 - Подключение: `psql -h localhost -p 5434 -U postgres -d organizations_db`
 
@@ -77,6 +90,24 @@ docker compose down
 
 # С удалением данных
 docker compose down -v
+```
+
+#### Makefile команды
+
+Для удобства проект включает набор make-таргетов (см. `Makefile`):
+
+```bash
+# Запуск сервисов (аналог ./start.sh)
+make up
+
+# Просмотр логов
+make logs
+
+# Остановка
+make down
+
+# Полная очистка (контейнеры + volumes)
+make clean
 ```
 
 ## Запуск без Docker
@@ -131,6 +162,7 @@ python main.py
 Все запросы требуют наличия заголовка `X-API-Key` с действительным API ключом.
 
 **Пример:**
+
 ```bash
 curl -H "X-API-Key: your-secret-api-key-change-in-production" \
   http://localhost:8000/api/v1/organizations/
@@ -242,7 +274,7 @@ curl -X POST \
 
 ## Структура проекта
 
-```
+```text
 test-task/
 ├── app/
 │   ├── api/              # API эндпоинты
@@ -276,12 +308,14 @@ test-task/
 ### Схема
 
 **Buildings** (Здания)
+
 - id (PK)
 - address (string)
 - coordinates (PostGIS POINT)
 - created_at, updated_at
 
 **Activities** (Деятельность)
+
 - id (PK)
 - name (string, unique)
 - parent_id (FK -> activities.id)
@@ -289,17 +323,20 @@ test-task/
 - created_at, updated_at
 
 **Organizations** (Организации)
+
 - id (PK)
 - name (string)
 - building_id (FK -> buildings.id)
 - created_at, updated_at
 
 **OrganizationPhone** (Телефоны организаций)
+
 - id (PK)
 - organization_id (FK -> organizations.id)
 - phone_number (string)
 
 **organization_activity** (Many-to-Many)
+
 - organization_id (FK -> organizations.id)
 - activity_id (FK -> activities.id)
 
