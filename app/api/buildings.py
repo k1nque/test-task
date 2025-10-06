@@ -3,6 +3,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import text
+from geoalchemy2.elements import WKTElement
 
 from app.db.session import get_db
 from app.core.security import verify_api_key
@@ -99,3 +100,52 @@ async def get_building(
         created_at=building.created_at,
         updated_at=building.updated_at
     )
+
+
+@router.post(
+    "/",
+    response_model=schemas.Building,
+    status_code=201,
+    summary="Create building",
+    description="Create a new building entry with geographic coordinates"
+)
+async def create_building(
+    building: schemas.BuildingCreate,
+    api_key: str = Depends(verify_api_key),
+    db: Session = Depends(get_db)
+):
+    """Create a new building with coordinates."""
+    try:
+        new_building = BuildingModel(
+            address=building.address,
+            coordinates=WKTElement(
+                f"POINT({building.longitude} {building.latitude})",
+                srid=4326,
+            ),
+        )
+        db.add(new_building)
+        db.commit()
+        db.refresh(new_building)
+
+        coords = db.execute(
+            text(
+                "SELECT ST_X(coordinates::geometry) AS lon, ST_Y(coordinates::geometry) AS lat "
+                "FROM buildings WHERE id = :id"
+            ),
+            {"id": new_building.id},
+        ).first()
+
+        logger.info("Created building %s at %s", new_building.id, new_building.address)
+
+        return schemas.Building(
+            id=new_building.id,
+            address=new_building.address,
+            latitude=coords.lat if coords else building.latitude,
+            longitude=coords.lon if coords else building.longitude,
+            created_at=new_building.created_at,
+            updated_at=new_building.updated_at,
+        )
+    except Exception as exc:  # pragma: no cover - defensive logging
+        db.rollback()
+        logger.exception("Failed to create building", exc_info=exc)
+        raise HTTPException(status_code=500, detail="Failed to create building") from exc

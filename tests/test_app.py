@@ -97,9 +97,10 @@ class FakeExecutionResult:
 class FakeSession:
     """Fake database session that returns deterministic data for tests."""
 
-    def __init__(self, data_map, execute_map=None):
+    def __init__(self, data_map, execute_map=None, start_pk=1):
         self._data_map = data_map
         self._execute_map = execute_map or {}
+        self._next_pk = start_pk
 
     def query(self, model):
         return FakeQuery(self._data_map.get(model, []))
@@ -109,6 +110,39 @@ class FakeSession:
         return FakeExecutionResult(payload)
 
     def close(self):
+        pass
+
+    def add(self, obj):
+        if getattr(obj, "id", None) is None:
+            obj.id = self._next_pk
+            self._next_pk += 1
+
+        now = datetime.now(UTC)
+        if getattr(obj, "created_at", None) is None:
+            obj.created_at = now
+        if getattr(obj, "updated_at", None) is None:
+            obj.updated_at = now
+
+        model = type(obj)
+        self._data_map.setdefault(model, []).append(obj)
+
+        if hasattr(obj, "coordinates"):
+            desc = getattr(getattr(obj, "coordinates", None), "desc", None)
+            if desc and obj.id not in self._execute_map:
+                try:
+                    coords = desc.strip().removeprefix("POINT(").removesuffix(")")
+                except AttributeError:  # Python <3.9 safeguard
+                    coords = desc.strip()[6:-1]
+                lon_str, lat_str = coords.split()
+                self._execute_map[obj.id] = SimpleNamespace(
+                    lat=float(lat_str),
+                    lon=float(lon_str),
+                )
+
+    def commit(self):
+        pass
+
+    def refresh(self, _obj):
         pass
 
 
@@ -326,6 +360,33 @@ def test_get_building_by_id_returns_location():
     assert payload["id"] == 3
     assert payload["latitude"] == 50.0
     assert payload["longitude"] == 40.0
+
+
+def test_create_building_persists_coordinates():
+    """POST /api/v1/buildings should store coordinates and return the resource."""
+    session = FakeSession({BuildingModel: []}, start_pk=10)
+    payload = {
+        "address": "New Site",
+        "latitude": 48.8566,
+        "longitude": 2.3522,
+    }
+
+    with override_db(session):
+        response = client.post(
+            "/api/v1/buildings/",
+            json=payload,
+            headers={"X-API-Key": settings.API_KEY},
+        )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["id"] == 10
+    assert body["address"] == payload["address"]
+    assert body["latitude"] == pytest.approx(payload["latitude"])
+    assert body["longitude"] == pytest.approx(payload["longitude"])
+
+    stored = session._data_map[BuildingModel][0]
+    assert stored.address == payload["address"]
 
 
 def test_list_activities_returns_all_levels():
